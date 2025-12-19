@@ -12,24 +12,24 @@ from textual.coordinate import Coordinate
 class FileTable(DataTable):
     HOME_DIR = Path.home()
     BINDINGS = [
-        Binding("h", "cursor_left", "scroll left", show=False),
-        Binding("j", "cursor_down", "go down", show=True),
-        Binding("k", "cursor_up", "go up", show=True),
-        Binding("l", "cursor_right", "scroll right", show=False),
-        Binding("enter", "select_cursor", "open", show=True),
-        Binding("backspace", "go_back", "back", show=True),
-        Binding("minus", "go_back", "back", show=False),
-        Binding("g", "scroll_top", "top", show=False),
-        Binding("G", "scroll_bottom", "bottom", show=False),
-        Binding("ctrl+u", "half_page_up", "half page up", show=False),
-        Binding("ctrl+d", "half_page_down", "half page down", show=False),
-        Binding("v", "toggle_visual_mode", "visual", show=True),
-        Binding("V", "toggle_visual_mode", "visual-line", show=False),
-        Binding("escape", "escape_pressed", "escape visual/visual-line mode", show=False),
-        Binding("yy", "yank", "yank", show=True),
-        Binding("y", "yank", "yank", show=False),
-        Binding("dd", "delete", "delete", show=True),
-        Binding("d", "delete", "delete", show=False),
+        Binding("h",         "cursor_left",        "scroll left",                    show=False),
+        Binding("j",         "cursor_down",        "go down",                        show=True),
+        Binding("k",         "cursor_up",          "go up",                          show=True),
+        Binding("l",         "cursor_right",       "scroll right",                   show=False),
+        Binding("enter",     "select_cursor",      "open",                           show=True),
+        Binding("backspace", "go_back",            "back",                           show=True),
+        Binding("minus",     "go_back",            "back",                           show=False),
+        Binding("g",         "scroll_top",         "top",                            show=False),
+        Binding("G",         "scroll_bottom",      "bottom",                         show=False),
+        Binding("ctrl+u",    "half_page_up",       "half page up",                   show=False),
+        Binding("ctrl+d",    "half_page_down",     "half page down",                 show=False),
+        Binding("v",         "toggle_visual_mode", "visual",                         show=True),
+        Binding("V",         "toggle_visual_mode", "visual-line",                    show=False),
+        Binding("escape",    "escape_pressed",     "escape visual/visual-line mode", show=False),
+        Binding("yy",        "yank",               "yank",                           show=True),
+        Binding("y",         "yank",               "yank",                           show=False),
+        Binding("dd",        "delete",             "delete",                         show=True),
+        Binding("d",         "delete",             "delete",                         show=False),
     ]
     MAX_COLUMN_WIDTH = 20
 
@@ -37,10 +37,14 @@ class FileTable(DataTable):
     current_dir_files = []
     last_cursor_positions = []
 
+    current_row_idx = 0
+    current_row_key = 0
+    deletion_queue = []
+
     visual_mode = False
     visual_start_row = 0
     visual_end_row = 0
-    yanked_items = []
+    # yanked_items = []
 
     double_tap_count = 0
     timer = None
@@ -51,10 +55,13 @@ class FileTable(DataTable):
     def on_mount(self) -> None:
         self.cursor_type = "row"
         self.zebra_stripes = True
+
+        # COLUMNS
         self.add_column("")
         self.add_column("Name", width=self.MAX_COLUMN_WIDTH)
         self.add_column("Size", width=7) # max 7 characters e.g. 1023.4K
         self.add_column("Last Modified")
+
         self.render()
 
     def render(self) -> None:
@@ -159,6 +166,10 @@ class FileTable(DataTable):
         else:
             self.notify("Cannot open file: No default application set for opening this type of file", severity="error", timeout=5)
 
+    def on_data_table_row_highlighted(self, event: DataTable.RowSelected) -> None:
+        self.current_row_idx = event.cursor_row
+        self.current_row_key = event.row_key
+
     def action_go_back(self) -> None:
         new_path = Path(f"{self.current_path.parent.absolute()}")
         if self.current_path != self.HOME_DIR:
@@ -243,10 +254,20 @@ class FileTable(DataTable):
             self.add_class("yanking-it")
             self.set_timer(timeout, lambda: self.remove_class("yanking-it"))
             self.set_timer(timeout, lambda: self.turn_visual_mode_off())
-        else:
-            if self.is_double_tap():
-                self.add_class("yanking-it")
-                self.set_timer(timeout, lambda: self.remove_class("yanking-it"))
+        elif self.is_double_tap():
+            self.add_class("yanking-it")
+            self.set_timer(timeout, lambda: self.remove_class("yanking-it"))
+
+    def action_delete(self) -> None:
+        # if self.visual_mode:
+            # group delete
+    
+        if self.is_double_tap() and not self.visual_mode:
+            # delete pressed
+            self.deletion_queue.append(self.get_row(self.current_row_key)[1])
+            self.remove_row(self.current_row_key)
+            self.move_cursor(row=0)
+            self.move_cursor(row=self.current_row_idx)
 
     def action_escape_pressed(self) -> None:
         if self.visual_mode:
@@ -271,7 +292,7 @@ class FsnekApp(App):
     }
     """
     config_file = Path("config")
-    selected_theme = "textual-dark"
+    selected_theme = "textual-dark" # by default
 
     def compose(self) -> ComposeResult:
         yield FileTable()
