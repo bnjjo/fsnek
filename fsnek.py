@@ -34,11 +34,11 @@ class FileTable(DataTable):
     MAX_COLUMN_WIDTH = 20
 
     current_path = Path(HOME_DIR)
-    current_dir_files = []
     last_cursor_positions = []
 
     current_row_idx = 0
     current_row_key = 0
+    selected_row_keys = []
     deletion_queue = []
 
     visual_mode = False
@@ -46,8 +46,7 @@ class FileTable(DataTable):
     visual_end_row = 0
     # yanked_items = []
 
-    double_tap_count = 0
-    timer = None
+    tap_count = 0
 
     def compose(self) -> ComposeResult:
         yield DataTable()
@@ -95,20 +94,21 @@ class FileTable(DataTable):
                 else:
                     formatted_name = item.name
 
-                self.current_dir_files.append(item.name)
-
-                self.add_row(
-                    assign_icon(item),
-                    formatted_name,
-                    size,
-                    lm_time,
-                )
+                # todo: fix actual file name not matching up with formatted name
+                # in deletion queue
+                deletion_queue = {Path(item).name for item in self.deletion_queue}
+                if formatted_name not in deletion_queue:
+                    self.add_row(
+                        assign_icon(item),
+                        formatted_name,
+                        size,
+                        lm_time,
+                    )
 
             except FileNotFoundError:
                 self.add_row(assign_icon(item), item.name, "Unknown", "Unknown")
 
         self.clear()
-        self.current_dir_files = []
 
         files = []
         directories = []
@@ -147,7 +147,8 @@ class FileTable(DataTable):
             self.refresh()
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
-        selected_row = self.current_dir_files[event.cursor_row]
+        self.selected_row_keys.clear()
+        selected_row = self.get_row_at(event.cursor_row)[1]
         new_path = Path(f"{self.current_path}/{selected_row}")
         previous_path = self.current_path
         if new_path.is_dir():
@@ -171,6 +172,7 @@ class FileTable(DataTable):
         self.current_row_key = event.row_key
 
     def action_go_back(self) -> None:
+        self.selected_row_keys.clear()
         new_path = Path(f"{self.current_path.parent.absolute()}")
         if self.current_path != self.HOME_DIR:
             self.current_path = new_path
@@ -186,6 +188,7 @@ class FileTable(DataTable):
             self.visual_mode = True
             self.visual_start_row = self.cursor_row
             self.visual_end_row = self.cursor_row
+            self.selected_row_keys.append(self.current_row_key)
             self.add_class("visual-mode")
             status = "on"
         else:
@@ -199,13 +202,13 @@ class FileTable(DataTable):
         self.remove_class("visual-mode")
 
     def is_double_tap(self) -> bool:
-        self.double_tap_count += 1
+        self.tap_count += 1
         
-        if self.double_tap_count == 1:
-            self.set_timer(0.5, lambda: setattr(self, 'double_tap_count', 0))
+        if self.tap_count == 1:
+            self.set_timer(0.5, lambda: setattr(self, 'tap_count', 0))
             return False
-        elif self.double_tap_count == 2:
-            self.double_tap_count = 0
+        elif self.tap_count == 2:
+            self.tap_count = 0
             return True
 
     def action_scroll_top(self) -> None:
@@ -259,15 +262,35 @@ class FileTable(DataTable):
             self.set_timer(timeout, lambda: self.remove_class("yanking-it"))
 
     def action_delete(self) -> None:
-        # if self.visual_mode:
-            # group delete
+        if self.visual_mode:
+            if self.current_row_key not in self.selected_row_keys:
+                self.selected_row_keys.append(self.current_row_key)
+            if self.visual_start_row < self.visual_end_row:
+                start = self.visual_start_row
+                end = self.visual_end_row
+            else:
+                start = self.visual_end_row
+                end = self.visual_start_row
+
+            for row_idx in range(start, end):
+                if self.ordered_rows[row_idx].key not in self.selected_row_keys:
+                    self.selected_row_keys.append(self.ordered_rows[row_idx].key)
+
+            for row_key in self.selected_row_keys:
+                self.deletion_queue.append(Path(f"{self.current_path}/{self.get_row(row_key)[1]}"))
+                self.remove_row(row_key)
+
+            self.turn_visual_mode_off()
+            self.selected_row_keys.clear()
+            self.tap_count = 0
     
+        # todo: fix double tap logic
         if self.is_double_tap() and not self.visual_mode:
-            # delete pressed
-            self.deletion_queue.append(self.get_row(self.current_row_key)[1])
+            self.deletion_queue.append(Path(f"{self.current_path}/{self.get_row(self.current_row_key)[1]}"))
             self.remove_row(self.current_row_key)
-            self.move_cursor(row=0)
-            self.move_cursor(row=self.current_row_idx)
+
+        self.render()
+        self.move_cursor(row=self.current_row_idx)
 
     def action_escape_pressed(self) -> None:
         if self.visual_mode:
