@@ -487,7 +487,7 @@ class InputBox(Static, can_focus=True):
         file_table.focus()
 
 
-class FsnekApp(App):
+class Fsnek(App):
     BINDINGS = [
         ("q", "quit", "quit"),
     ]
@@ -540,5 +540,5 @@ class FsnekApp(App):
 
 
 if __name__ == "__main__":
-    app = FsnekApp()
+    app = Fsnek()
     app.run()
