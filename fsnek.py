@@ -2,10 +2,12 @@ from icons import ICONS
 from typing import Literal
 from pathlib import Path
 from datetime import datetime
+from send2trash import send2trash as trash
 from textual.app import App, ComposeResult
 from textual.events import Key
 from textual.binding import Binding
-from textual.widgets import DataTable, Footer
+from textual.widgets import DataTable, Footer, Static
+from textual.containers import Container
 from textual.coordinate import Coordinate
 
 
@@ -44,7 +46,6 @@ class FileTable(DataTable):
     visual_mode = False
     visual_start_row = 0
     visual_end_row = 0
-    # yanked_items = []
 
     tap_count = 0
 
@@ -58,7 +59,7 @@ class FileTable(DataTable):
         # COLUMNS
         self.add_column("")
         self.add_column("Name", width=self.MAX_COLUMN_WIDTH)
-        self.add_column("Size", width=7) # max 7 characters e.g. 1023.4K
+        self.add_column("Size", width=7)
         self.add_column("Last Modified")
 
         self.render()
@@ -94,10 +95,7 @@ class FileTable(DataTable):
                 else:
                     formatted_name = item.name
 
-                # todo: fix actual file name not matching up with formatted name
-                # in deletion queue
-                deletion_queue = {Path(item).name for item in self.deletion_queue}
-                if formatted_name not in deletion_queue:
+                if Path(f"{self.current_path}/{item.name}") not in self.deletion_queue:
                     self.add_row(
                         assign_icon(item),
                         formatted_name,
@@ -124,6 +122,8 @@ class FileTable(DataTable):
         all_items = sorted(directories) + sorted(files)
         for item in all_items:
             add_to_filetable(item)
+
+        self.deletion_queue.clear()
 
     def _should_highlight(
         self,
@@ -283,11 +283,12 @@ class FileTable(DataTable):
             self.turn_visual_mode_off()
             self.selected_row_keys.clear()
             self.tap_count = 0
+            self.show_dialog("DELETE")
     
-        # todo: fix double tap logic
         if self.is_double_tap() and not self.visual_mode:
             self.deletion_queue.append(Path(f"{self.current_path}/{self.get_row(self.current_row_key)[1]}"))
             self.remove_row(self.current_row_key)
+            self.show_dialog("DELETE")
 
         self.render()
         self.move_cursor(row=self.current_row_idx)
@@ -296,12 +297,98 @@ class FileTable(DataTable):
         if self.visual_mode:
             self.turn_visual_mode_off()
 
+    def show_dialog(self, command: str) -> None:
+        overlay = self.app.query_one(DialogOverlay)
+        overlay.styles.display = "block"
+        dialog = self.app.query_one(DialogBox)
+        deletion_queue = ""
+        pending_actions = ""
+        for item in self.deletion_queue:
+            pending_actions = pending_actions + str(item) + "$"
+            deletion_queue = deletion_queue + f"DELETE: {str(item)}\n"
+        dialog.actions = pending_actions[:-1]
+        dialog.command = command
+        dialog.update(f"Would you like to:\n{deletion_queue}\n\[Y]es        \[N]o")
+        dialog.focus()
+
+    # def hide_dialog(self) -> None:
+    #     overlay = self.app.query_one(DialogOverlay)
+    #     overlay.styles.display = "none"
+
+
+class DialogOverlay(Container):
+    DEFAULT_CSS = """
+    DialogOverlay {
+        width: 100%;
+        height: 100%;
+        align: center middle;
+        display: none;
+    }
+    """
+
+
+class DialogBox(Static, can_focus=True):
+    BINDINGS = [
+        ("y", "confirm", "confirm"),
+        ("n", "abort", "abort"),
+    ]
+    DEFAULT_CSS = """
+    DialogBox {
+        width: 90%;
+        height: auto;
+        padding: 1 2;
+        background: $panel;
+        border: tall $primary;
+        content-align: center middle;
+        text-align: center;
+    }
+    """
+    actions = ""
+    command = ""
+
+    def action_confirm(self) -> None:
+        overlay = self.app.query_one(DialogOverlay)
+        overlay.styles.display = "none"
+        file_table = self.app.query_one(FileTable)
+
+        if self.command == "DELETE":
+            self.delete_files()
+
+        self.actions = ""
+        self.command = ""
+        file_table.focus()
+
+    def action_abort(self) -> None:
+        overlay = self.app.query_one(DialogOverlay)
+        overlay.styles.display = "none"
+        file_table = self.app.query_one(FileTable)
+        self.actions = ""
+        self.command = ""
+        file_table.focus()
+
+    def delete_files(self) -> None:
+        self.actions = self.actions.split("$")
+        for i in self.actions:
+            trash(i)
 
 class FsnekApp(App):
     BINDINGS = [
         ("q", "quit", "quit"),
     ]
     CSS = """
+    Screen {
+        layers: base overlay;
+    }
+    
+    FileTable, Footer {
+        layer: base;
+    }
+    
+    DialogOverlay {
+        layer: overlay;
+        background: $background 30%;
+    }
+    
     DataTable > .datatable--cursor {
         background: #88C0D0;
     }
@@ -315,11 +402,13 @@ class FsnekApp(App):
     }
     """
     config_file = Path("config")
-    selected_theme = "textual-dark" # by default
+    selected_theme = "textual-dark"
 
     def compose(self) -> ComposeResult:
         yield FileTable()
         yield Footer()
+        with DialogOverlay():
+            yield DialogBox()
 
     def on_mount(self) -> None:
         if self.config_file.exists():
