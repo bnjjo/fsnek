@@ -6,7 +6,7 @@ from send2trash import send2trash as trash
 from textual.app import App, ComposeResult
 from textual.events import Key
 from textual.binding import Binding
-from textual.widgets import DataTable, Footer, Static
+from textual.widgets import DataTable, Footer, Input, Static
 from textual.containers import Container
 from textual.coordinate import Coordinate
 
@@ -14,30 +14,39 @@ from textual.coordinate import Coordinate
 class FileTable(DataTable):
     HOME_DIR = Path.home()
     BINDINGS = [
-        Binding("h",         "cursor_left",        "scroll left",                    show=False),
-        Binding("j",         "cursor_down",        "go down",                        show=True),
-        Binding("k",         "cursor_up",          "go up",                          show=True),
-        Binding("l",         "cursor_right",       "scroll right",                   show=False),
-        Binding("enter",     "select_cursor",      "open",                           show=True),
-        Binding("backspace", "go_back",            "back",                           show=True),
-        Binding("minus",     "go_back",            "back",                           show=False),
-        Binding("g",         "scroll_top",         "top",                            show=False),
-        Binding("G",         "scroll_bottom",      "bottom",                         show=False),
-        Binding("ctrl+u",    "half_page_up",       "half page up",                   show=False),
-        Binding("ctrl+d",    "half_page_down",     "half page down",                 show=False),
-        Binding("v",         "toggle_visual_mode", "visual",                         show=True),
-        Binding("V",         "toggle_visual_mode", "visual-line",                    show=False),
-        Binding("escape",    "escape_pressed",     "escape visual/visual-line mode", show=False),
-        Binding("yy",        "yank",               "yank",                           show=True),
-        Binding("y",         "yank",               "yank",                           show=False),
-        Binding("dd",        "delete",             "delete",                         show=True),
-        Binding("d",         "delete",             "delete",                         show=False),
+        Binding("h",         "cursor_left",          "scroll left",                    show=False),
+        Binding("j",         "cursor_down",          "go down",                        show=True),
+        Binding("k",         "cursor_up",            "go up",                          show=True),
+        Binding("l",         "cursor_right",         "scroll right",                   show=False),
+        Binding("enter",     "select_cursor",        "open",                           show=True),
+        Binding("backspace", "go_back",              "back",                           show=True),
+        Binding("minus",     "go_back",              "back",                           show=False),
+        Binding("g",         "scroll_top",           "top",                            show=False),
+        Binding("G",         "scroll_bottom",        "bottom",                         show=False),
+        Binding("ctrl+u",    "half_page_up",         "half page up",                   show=False),
+        Binding("ctrl+d",    "half_page_down",       "half page down",                 show=False),
+        Binding("v/V",       "toggle_visual_mode",   "visual",                         show=True),
+        Binding("v",         "toggle_visual_mode",   "visual",                         show=False),
+        Binding("V",         "toggle_visual_mode",   "visual-line",                    show=False),
+        Binding("escape",    "escape_pressed",       "escape visual/visual-line mode", show=False),
+        Binding("a",         "rename(False, False)", "append",                         show=True),
+        Binding("A",         "rename(False, True)",  "append",                         show=False),
+        Binding("i",         "rename(True, False)",  "insert",                         show=True),
+        Binding("I",         "rename(True, False)",  "insert",                         show=False),
+        Binding("o/O",       "create_file",          "create file",                    show=True),
+        Binding("o",         "create_file",          "create file",                    show=False),
+        Binding("O",         "create_file",          "create file",                    show=False),
+        Binding("yy",        "yank",                 "yank",                           show=True),
+        Binding("y",         "yank",                 "yank",                           show=False),
+        Binding("dd",        "delete",               "delete",                         show=True),
+        Binding("d",         "delete",               "delete",                         show=False),
     ]
     MAX_COLUMN_WIDTH = 20
 
     current_path = Path(HOME_DIR)
     last_cursor_positions = []
 
+    current_rows = 0
     current_row_idx = 0
     current_row_key = 0
     selected_row_keys = []
@@ -59,12 +68,14 @@ class FileTable(DataTable):
         # COLUMNS
         self.add_column("")
         self.add_column("Name", width=self.MAX_COLUMN_WIDTH)
-        self.add_column("Size", width=7)
+        self.add_column("Size", width=7) # 7 character max width e.g. 1023.4K
         self.add_column("Last Modified")
 
         self.render()
 
     def render(self) -> None:
+        self.current_rows = 0
+
         def assign_icon(path: Path) -> str:
             if path.is_dir():
                 return ICONS["directory"]
@@ -72,7 +83,7 @@ class FileTable(DataTable):
             extension = path.suffix[1:].lower()
             return ICONS.get(extension, ICONS["generic_file"])
 
-        def human_readable_size(size, decimal_places=1):
+        def human_readable_size(size: float, decimal_places: int = 1):
             for unit in ['B', 'K', 'M', 'G', 'T', 'P']:
                 if size < 1024.0 and unit == 'B':
                     return f"{size}{unit}"
@@ -89,19 +100,24 @@ class FileTable(DataTable):
                     "%Y-%m-%d %H:%M:%S"
                 )
                 size = human_readable_size(stat_info.st_size)
-                name_limit = self.MAX_COLUMN_WIDTH - 3
-                if len(item.name) > name_limit:
-                    formatted_name = f"{item.name[:name_limit]}..."
-                else:
-                    formatted_name = item.name
+
+                # TODO: add elipses for when file names are too long
+
+                # name_limit = self.MAX_COLUMN_WIDTH - 3
+                # if len(item.name) > name_limit:
+                #     formatted_name = f"{item.name[:name_limit]}..."
+                # else:
+                #     formatted_name = item.name
 
                 if Path(f"{self.current_path}/{item.name}") not in self.deletion_queue:
                     self.add_row(
                         assign_icon(item),
-                        formatted_name,
+                        item.name,
                         size,
                         lm_time,
                     )
+
+                self.current_rows += 1
 
             except FileNotFoundError:
                 self.add_row(assign_icon(item), item.name, "Unknown", "Unknown")
@@ -295,25 +311,53 @@ class FileTable(DataTable):
             self.turn_visual_mode_off()
 
     def show_dialog(self, command: str) -> None:
-        overlay = self.app.query_one(DialogOverlay)
+        overlay = self.app.query_one(Overlay)
         overlay.styles.display = "block"
         dialog = self.app.query_one(DialogBox)
-        deletion_queue = ""
-        pending_actions = ""
-        for item in self.deletion_queue:
-            pending_actions = pending_actions + str(item) + "$"
-            deletion_queue = deletion_queue + f"DELETE: {str(item)}\n"
+        dialog.styles.display = "block"
+
+        if command == "DELETE":
+            output = ""
+            pending_actions = ""
+            for item in self.deletion_queue:
+                # todo: change this from a dollar sign
+                # it will lead to improper splitting on mac
+                # if a dir name contains a dollar sign
+                pending_actions = pending_actions + str(item) + "$"
+                output = output + f"DELETE: {str(item)}\n"
+
         dialog.actions = pending_actions[:-1]
-        dialog.command = command
-        dialog.update(f"Would you like to:\n{deletion_queue}\n\[Y]es        \[N]o")
+        dialog.update(f"Would you like to:\n{output}\n\[Y]es        \[N]o")
         dialog.focus()
 
+    def action_rename(self, insert: bool = False, append_at_end: bool = False) -> None:
+        if self.current_rows < 1:
+            self.notify("Nothing to rename", severity="error", timeout=5)
+        else:
+            overlay = self.app.query_one(Overlay)
+            overlay.styles.display = "block"
+            input_box = self.app.query_one(InputBox)
+            input_box.styles.display = "block"
+            input = input_box.query_one(Input)
+            file_name = self.get_row(self.current_row_key)[1]
+            input.value = file_name
+            if insert:
+                input.cursor_position = 0
+            elif "." in file_name:
+                if append_at_end:
+                    input.cursor_position = len(file_name)
+                else:
+                    input.cursor_position = len(file_name.split(".")[0])
+            else: 
+                input.cursor_position = len(file_name)
+            input.focus()
 
-class DialogOverlay(Container):
+
+class Overlay(Container):
     DEFAULT_CSS = """
-    DialogOverlay {
+    Overlay {
         width: 100%;
-        height: 100%;
+        height: 99%;
         align: center middle;
         display: none;
     }
@@ -334,13 +378,15 @@ class DialogBox(Static, can_focus=True):
         border: tall $primary;
         content-align: center middle;
         text-align: center;
+        display: none;
     }
     """
+
     actions = ""
     command = ""
 
     def action_confirm(self) -> None:
-        overlay = self.app.query_one(DialogOverlay)
+        overlay = self.app.query_one(Overlay)
         overlay.styles.display = "none"
         file_table = self.app.query_one(FileTable)
 
@@ -352,7 +398,7 @@ class DialogBox(Static, can_focus=True):
         file_table.focus()
 
     def action_abort(self) -> None:
-        overlay = self.app.query_one(DialogOverlay)
+        overlay = self.app.query_one(Overlay)
         overlay.styles.display = "none"
         file_table = self.app.query_one(FileTable)
         self.actions = ""
@@ -367,6 +413,43 @@ class DialogBox(Static, can_focus=True):
         for i in self.actions:
             trash(i)
 
+
+class InputBox(Static, can_focus=True):
+    BINDINGS = [
+        ("escape", "exit", "cancel"),
+    ]
+    DEFAULT_CSS = """
+    InputBox {
+        max-width: 50;
+        content-align: center middle;
+        text-align: center;
+        display: none;
+    }
+    """
+
+    def compose(self) -> ComposeResult:
+        yield Input(select_on_focus=False)
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        file_table = self.app.query_one(FileTable)
+        old_path = Path(f"{file_table.current_path}/{file_table.get_row(file_table.current_row_key)[1]}")
+        if event.value == "":
+            self.notify("Name cannot be empty", severity="error", timeout=5)
+        else:
+            new_path = old_path.with_name(event.value)
+            old_path.rename(new_path)
+        self.action_exit()
+
+    def action_exit(self) -> None:
+        overlay = self.app.query_one(Overlay)
+        overlay.styles.display = "none"
+        self.styles.display = "none"
+        file_table = self.app.query_one(FileTable)
+        file_table.render()
+        file_table.move_cursor(row=file_table.current_row_idx)
+        file_table.focus()
+
+
 class FsnekApp(App):
     BINDINGS = [
         ("q", "quit", "quit"),
@@ -380,7 +463,7 @@ class FsnekApp(App):
         layer: base;
     }
     
-    DialogOverlay {
+    Overlay {
         layer: overlay;
         background: $background 30%;
     }
@@ -403,8 +486,9 @@ class FsnekApp(App):
     def compose(self) -> ComposeResult:
         yield FileTable()
         yield Footer()
-        with DialogOverlay():
+        with Overlay():
             yield DialogBox()
+            yield InputBox()
 
     def on_mount(self) -> None:
         if self.config_file.exists():
