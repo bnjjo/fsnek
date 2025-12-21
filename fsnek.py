@@ -320,13 +320,11 @@ class FileTable(DataTable):
             output = ""
             pending_actions = ""
             for item in self.deletion_queue:
-                # todo: change this from a dollar sign
-                # it will lead to improper splitting on mac
-                # if a dir name contains a dollar sign
-                pending_actions = pending_actions + str(item) + "$"
-                output = output + f"DELETE: {str(item)}\n"
+                pending_actions = pending_actions + "\n" + str(item)
+                output = output + f"{command}: {str(item)}\n"
 
-        dialog.actions = pending_actions[:-1]
+        dialog.command = f"{command}"
+        dialog.actions = pending_actions[1:]
         dialog.update(f"Would you like to:\n{output}\n\[Y]es        \[N]o")
         dialog.focus()
 
@@ -350,7 +348,20 @@ class FileTable(DataTable):
                     input.cursor_position = len(file_name.split(".")[0])
             else: 
                 input.cursor_position = len(file_name)
+            input_box.command = "RENAME"
             input.focus()
+
+    def action_create_file(self) -> None:
+        overlay = self.app.query_one(Overlay)
+        overlay.styles.display = "block"
+        input_box = self.app.query_one(InputBox)
+        input_box.styles.display = "block"
+        input = input_box.query_one(Input)
+        input.placeholder = "Create a new file/directory"
+        input.cursor_position = 0
+        input_box.command = "CREATE"
+        input.value = ""
+        input.focus()
 
 
 class Overlay(Container):
@@ -395,6 +406,8 @@ class DialogBox(Static, can_focus=True):
 
         self.actions = ""
         self.command = ""
+        self.styles.display = "none"
+        file_table.render()
         file_table.focus()
 
     def action_abort(self) -> None:
@@ -403,13 +416,14 @@ class DialogBox(Static, can_focus=True):
         file_table = self.app.query_one(FileTable)
         self.actions = ""
         self.command = ""
+        self.styles.display = "none"
         file_table.deletion_queue.clear()
         file_table.render()
         file_table.move_cursor(row=file_table.current_row_idx)
         file_table.focus()
 
     def delete_files(self) -> None:
-        self.actions = self.actions.split("$")
+        self.actions = self.actions.split("\n")
         for i in self.actions:
             trash(i)
 
@@ -427,23 +441,46 @@ class InputBox(Static, can_focus=True):
     }
     """
 
+    command = ""
+
     def compose(self) -> ComposeResult:
         yield Input(select_on_focus=False)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         file_table = self.app.query_one(FileTable)
-        old_path = Path(f"{file_table.current_path}/{file_table.get_row(file_table.current_row_key)[1]}")
-        if event.value == "":
-            self.notify("Name cannot be empty", severity="error", timeout=5)
-        else:
-            new_path = old_path.with_name(event.value)
-            old_path.rename(new_path)
+
+        if self.command == "RENAME":
+            old_path = Path(f"{file_table.current_path}/{file_table.get_row(file_table.current_row_key)[1]}")
+            if event.value == "":
+                self.notify("Name cannot be empty", severity="error", timeout=5)
+            else:
+                new_path = old_path.with_name(event.value)
+                old_path.rename(new_path)
+
+        elif self.command == "CREATE":
+            if event.value == "":
+                self.notify("Name cannot be empty", severity="error", timeout=5)
+            else:
+                if event.value[-1] == "/":
+                    new_path = Path(f"{file_table.current_path}/{event.value[:-1]}")
+                    try:
+                        new_path.mkdir(exist_ok=False)
+                    except FileExistsError:
+                        self.notify("Error: Directory with same name already exists", severity="error", timeout=5)
+                else:
+                    new_path = Path(f"{file_table.current_path}/{event.value}")
+                    try:
+                        new_path.touch(exist_ok=False)
+                    except FileExistsError:
+                        self.notify("Error: File with same name already exists", severity="error", timeout=5)
+
         self.action_exit()
 
     def action_exit(self) -> None:
         overlay = self.app.query_one(Overlay)
         overlay.styles.display = "none"
         self.styles.display = "none"
+        self.command = ""
         file_table = self.app.query_one(FileTable)
         file_table.render()
         file_table.move_cursor(row=file_table.current_row_idx)
