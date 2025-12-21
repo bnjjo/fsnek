@@ -290,9 +290,6 @@ class FileTable(DataTable):
             self.remove_row(self.current_row_key)
             self.show_dialog("DELETE")
 
-        self.render()
-        self.move_cursor(row=self.current_row_idx)
-
     def action_escape_pressed(self) -> None:
         if self.visual_mode:
             self.turn_visual_mode_off()
@@ -310,10 +307,6 @@ class FileTable(DataTable):
         dialog.command = command
         dialog.update(f"Would you like to:\n{deletion_queue}\n\[Y]es        \[N]o")
         dialog.focus()
-
-    # def hide_dialog(self) -> None:
-    #     overlay = self.app.query_one(DialogOverlay)
-    #     overlay.styles.display = "none"
 
 
 class DialogOverlay(Container):
@@ -364,6 +357,9 @@ class DialogBox(Static, can_focus=True):
         file_table = self.app.query_one(FileTable)
         self.actions = ""
         self.command = ""
+        file_table.deletion_queue.clear()
+        file_table.render()
+        file_table.move_cursor(row=file_table.current_row_idx)
         file_table.focus()
 
     def delete_files(self) -> None:
