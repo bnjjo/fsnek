@@ -1,3 +1,4 @@
+import shutil
 from icons import ICONS
 from typing import Literal
 from pathlib import Path
@@ -36,10 +37,13 @@ class FileTable(DataTable):
         Binding("o/O",       "create_file",          "create file",                    show=True),
         Binding("o",         "create_file",          "create file",                    show=False),
         Binding("O",         "create_file",          "create file",                    show=False),
-        Binding("yy",        "yank",                 "yank",                           show=True),
-        Binding("y",         "yank",                 "yank",                           show=False),
         Binding("dd",        "delete",               "delete",                         show=True),
         Binding("d",         "delete",               "delete",                         show=False),
+        Binding("xx",        "move",                 "move",                           show=True),
+        Binding("x",         "move",                 "move",                           show=False),
+        Binding("yy",        "yank",                 "yank",                           show=True),
+        Binding("y",         "yank",                 "yank",                           show=False),
+        Binding("p",         "put",                  "put (paste)",                    show=True),
     ]
     MAX_COLUMN_WIDTH = 20
 
@@ -50,8 +54,9 @@ class FileTable(DataTable):
     current_row_idx = 0
     current_row_key = 0
     selected_row_keys = []
-    deletion_queue = []
+    item_queue = []
 
+    moving = False
     visual_mode = False
     visual_start_row = 0
     visual_end_row = 0
@@ -109,7 +114,7 @@ class FileTable(DataTable):
                 # else:
                 #     formatted_name = item.name
 
-                if Path(f"{self.current_path}/{item.name}") not in self.deletion_queue:
+                if Path(f"{self.current_path}/{item.name}") not in self.item_queue:
                     self.add_row(
                         assign_icon(item),
                         item.name,
@@ -138,8 +143,6 @@ class FileTable(DataTable):
         all_items = sorted(directories) + sorted(files)
         for item in all_items:
             add_to_filetable(item)
-
-        self.deletion_queue.clear()
 
     def _should_highlight(
         self,
@@ -277,56 +280,100 @@ class FileTable(DataTable):
             self.add_class("yanking-it")
             self.set_timer(timeout, lambda: self.remove_class("yanking-it"))
 
+    def get_visual_mode_selection(self) -> None:
+        if self.current_row_key not in self.selected_row_keys:
+            self.selected_row_keys.append(self.current_row_key)
+        if self.visual_start_row < self.visual_end_row:
+            start = self.visual_start_row
+            end = self.visual_end_row
+        else:
+            start = self.visual_end_row
+            end = self.visual_start_row
+
+        for row_idx in range(start, end):
+            if self.ordered_rows[row_idx].key not in self.selected_row_keys:
+                self.selected_row_keys.append(self.ordered_rows[row_idx].key)
+
+        for row_key in self.selected_row_keys:
+            self.item_queue.append(Path(f"{self.current_path}/{self.get_row(row_key)[1]}"))
+            self.remove_row(row_key)
+
+        self.turn_visual_mode_off()
+        self.selected_row_keys.clear()
+        self.tap_count = 0
+
     def action_delete(self) -> None:
         if self.visual_mode:
-            if self.current_row_key not in self.selected_row_keys:
-                self.selected_row_keys.append(self.current_row_key)
-            if self.visual_start_row < self.visual_end_row:
-                start = self.visual_start_row
-                end = self.visual_end_row
+            if self.moving:
+                self.show_dialog("CANCEL")
             else:
-                start = self.visual_end_row
-                end = self.visual_start_row
-
-            for row_idx in range(start, end):
-                if self.ordered_rows[row_idx].key not in self.selected_row_keys:
-                    self.selected_row_keys.append(self.ordered_rows[row_idx].key)
-
-            for row_key in self.selected_row_keys:
-                self.deletion_queue.append(Path(f"{self.current_path}/{self.get_row(row_key)[1]}"))
-                self.remove_row(row_key)
-
-            self.turn_visual_mode_off()
-            self.selected_row_keys.clear()
-            self.tap_count = 0
-            self.show_dialog("DELETE")
+                self.get_visual_mode_selection()
+                self.show_dialog("DELETE")
     
         if self.is_double_tap() and not self.visual_mode:
-            self.deletion_queue.append(Path(f"{self.current_path}/{self.get_row(self.current_row_key)[1]}"))
+            if self.moving:
+                self.show_dialog("CANCEL")
+            else:
+                self.item_queue.append(Path(f"{self.current_path}/{self.get_row(self.current_row_key)[1]}"))
+                self.remove_row(self.current_row_key)
+                self.show_dialog("DELETE")
+
+        if not self.moving:
+            self.item_queue.clear()
+
+    def action_move(self) -> None:
+        self.moving = True
+        if self.visual_mode:
+            self.get_visual_mode_selection()
+            self.render()
+
+        if self.is_double_tap() and not self.visual_mode:
+            self.item_queue.append(Path(f"{self.current_path}/{self.get_row(self.current_row_key)[1]}"))
             self.remove_row(self.current_row_key)
-            self.show_dialog("DELETE")
+            self.render()
+            self.move_cursor(row=self.current_row_idx)
+
+
+    def action_put(self) -> None:
+        if self.moving:
+            self.show_dialog("MOVE")
 
     def action_escape_pressed(self) -> None:
-        if self.visual_mode:
+        if self.visual_mode and self.moving:
             self.turn_visual_mode_off()
+        elif self.visual_mode:
+            self.turn_visual_mode_off()
+        elif self.moving:
+            self.moving = False
+            self.item_queue.clear()
+            self.render()
+            self.notify("Move canceled", severity="warning", timeout=5)
 
     def show_dialog(self, command: str) -> None:
         overlay = self.app.query_one(Overlay)
         overlay.styles.display = "block"
         dialog = self.app.query_one(DialogBox)
         dialog.styles.display = "block"
-
-        if command == "DELETE":
-            output = ""
-            pending_actions = ""
-            for item in self.deletion_queue:
-                pending_actions = pending_actions + "\n" + str(item)
-                output = output + f"{command}: {str(item)}\n"
-
         dialog.command = f"{command}"
-        dialog.actions = pending_actions[1:]
-        dialog.update(f"Would you like to:\n{output}\n\[Y]es        \[N]o")
-        dialog.focus()
+
+        output = ""
+        pending_actions = ""
+
+        if command == "DELETE" or "MOVE":
+            for item in self.item_queue:
+                pending_actions = pending_actions + "\n" + str(item)
+                output = output + f"{str(item)}\n"
+
+            dialog.actions = pending_actions[1:]
+            if command == "DELETE":
+                dialog.update(f"Would you like to:\n\n{command}:\n{output}\n\[Y]es        \[N]o")
+            else:
+                dialog.update(f"Would you like to:\n\n{command}:\n{output}\nTO:\n{self.current_path}\n\n\[Y]es        \[N]o")
+            dialog.focus()
+
+        if command == "CANCEL":
+            dialog.update("You currently have items waiting to be moved. Would you like to cancel this action?\n\n\[Y]es        \[N]o")
+            dialog.focus()
 
     def action_rename(self, insert: bool = False, append_at_end: bool = False) -> None:
         if self.current_rows < 1:
@@ -396,6 +443,16 @@ class DialogBox(Static, can_focus=True):
     actions = ""
     command = ""
 
+    def close_dialog(self) -> None:
+        file_table = self.app.query_one(FileTable)
+        self.actions = ""
+        self.command = ""
+        self.styles.display = "none"
+        file_table.render()
+        file_table.move_cursor(row=file_table.current_row_idx)
+        file_table.turn_visual_mode_off()
+        file_table.focus()
+
     def action_confirm(self) -> None:
         overlay = self.app.query_one(Overlay)
         overlay.styles.display = "none"
@@ -403,29 +460,46 @@ class DialogBox(Static, can_focus=True):
 
         if self.command == "DELETE":
             self.delete_files()
+        elif self.command == "CANCEL":
+            self.cancel_move()
+        elif self.command == "MOVE":
+            self.move_files()
 
-        self.actions = ""
-        self.command = ""
-        self.styles.display = "none"
-        file_table.render()
-        file_table.focus()
+        file_table.item_queue.clear()
+        self.close_dialog()
 
     def action_abort(self) -> None:
         overlay = self.app.query_one(Overlay)
         overlay.styles.display = "none"
         file_table = self.app.query_one(FileTable)
-        self.actions = ""
-        self.command = ""
-        self.styles.display = "none"
-        file_table.deletion_queue.clear()
-        file_table.render()
-        file_table.move_cursor(row=file_table.current_row_idx)
-        file_table.focus()
+        file_table.item_queue.clear()
+        file_table.moving = False
+
+        self.close_dialog()
 
     def delete_files(self) -> None:
         self.actions = self.actions.split("\n")
-        for i in self.actions:
-            trash(i)
+        for item in self.actions:
+            trash(item)
+
+    def move_files(self) -> None:
+        file_table = self.app.query_one(FileTable)
+        self.actions = self.actions.split("\n")
+        for item in self.actions:
+            try:
+                shutil.move(item, file_table.current_path)
+            except OSError:
+                formatted_item = item.split("/")[-1]
+                formatted_path = f"{file_table.current_path.name}/"
+                self.notify(f"Cannot move {formatted_item} to {formatted_path}: File/directory already exists", severity="error", timeout=5)
+        file_table.moving = False
+        file_table.render()
+
+    def cancel_move(self) -> None:
+        file_table = self.app.query_one(FileTable)
+        file_table.moving = False
+        file_table.item_queue.clear()
+        file_table.render()
 
 
 class InputBox(Static, can_focus=True):
