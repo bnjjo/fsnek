@@ -56,6 +56,7 @@ class FileTable(DataTable):
     current_row_key = 0
     selected_row_keys = []
     item_queue = []
+    yanking_queue = []
 
     moving = False
     visual_mode = False
@@ -198,8 +199,9 @@ class FileTable(DataTable):
             self.current_path = new_path
             self.turn_visual_mode_off()
             self.render()
-            self.move_cursor(row=self.last_cursor_positions[-1])
-            self.last_cursor_positions.pop()
+            if self.last_cursor_positions:
+                self.move_cursor(row=self.last_cursor_positions[-1])
+                self.last_cursor_positions.pop()
         else:
             self.notify("Error: Cannot go back any further", severity="error", timeout=5)
 
@@ -272,16 +274,31 @@ class FileTable(DataTable):
 
     def action_yank(self) -> None:
         timeout = 0.2
+        if self.current_rows > 1:
+            self.yanking_queue.clear()
 
-        if self.visual_mode:
-            self.add_class("yanking-it")
-            self.set_timer(timeout, lambda: self.remove_class("yanking-it"))
-            self.set_timer(timeout, lambda: self.turn_visual_mode_off())
-        elif self.is_double_tap():
-            self.add_class("yanking-it")
-            self.set_timer(timeout, lambda: self.remove_class("yanking-it"))
+            if self.visual_mode:
+                if self.moving:
+                    self.show_dialog("CANCEL")
+                else:
+                    self.add_class("yanking-it")
+                    self.set_timer(timeout, lambda: self.remove_class("yanking-it"))
+                    self.set_timer(timeout, lambda: self.turn_visual_mode_off())
+                    
+                    self.get_visual_mode_selection(yanking=True)
 
-    def get_visual_mode_selection(self) -> None:
+            elif self.is_double_tap():
+                if self.moving:
+                    self.show_dialog("CANCEL")
+                else:
+                    self.add_class("yanking-it")
+                    self.set_timer(timeout, lambda: self.remove_class("yanking-it"))
+                    self.yanking_queue.clear()
+                    self.yanking_queue.append(Path(f"{self.current_path}/{self.get_row(self.current_row_key)[1]}"))
+        else:
+            pass
+
+    def get_visual_mode_selection(self, yanking: bool = False) -> None:
         if self.current_row_key not in self.selected_row_keys:
             self.selected_row_keys.append(self.current_row_key)
         if self.visual_start_row < self.visual_end_row:
@@ -291,13 +308,16 @@ class FileTable(DataTable):
             start = self.visual_end_row
             end = self.visual_start_row
 
-        for row_idx in range(start, end):
+        for row_idx in range(start, end + 1):
             if self.ordered_rows[row_idx].key not in self.selected_row_keys:
                 self.selected_row_keys.append(self.ordered_rows[row_idx].key)
 
         for row_key in self.selected_row_keys:
-            self.item_queue.append(Path(f"{self.current_path}/{self.get_row(row_key)[1]}"))
-            self.remove_row(row_key)
+            if not yanking:
+                self.item_queue.append(Path(f"{self.current_path}/{self.get_row(row_key)[1]}"))
+                self.remove_row(row_key)
+            else:
+                self.yanking_queue.append(Path(f"{self.current_path}/{self.get_row(row_key)[1]}"))
 
         self.turn_visual_mode_off()
         self.selected_row_keys.clear()
@@ -311,7 +331,7 @@ class FileTable(DataTable):
                 self.get_visual_mode_selection()
                 self.show_dialog("DELETE")
     
-        if self.is_double_tap() and not self.visual_mode:
+        elif self.is_double_tap():
             if self.moving:
                 self.show_dialog("CANCEL")
             else:
@@ -328,7 +348,7 @@ class FileTable(DataTable):
             self.get_visual_mode_selection()
             self.render()
 
-        if self.is_double_tap() and not self.visual_mode:
+        elif self.is_double_tap():
             self.item_queue.append(Path(f"{self.current_path}/{self.get_row(self.current_row_key)[1]}"))
             self.remove_row(self.current_row_key)
             self.render()
@@ -337,6 +357,18 @@ class FileTable(DataTable):
     def action_put(self) -> None:
         if self.moving:
             self.show_dialog("MOVE")
+        else:
+            for item in self.yanking_queue:
+                destination = Path(f"{self.current_path}/{item.name}")
+                if destination.exists():
+                    self.notify(f"Error: File with name {item.name} already exists in this directory", severity="error", timeout=5)
+                else:
+                    try:
+                        shutil.copy2(item, self.current_path)
+                    except Exception as e:
+                        self.notify(f"Error copying {item.name}: {str(e)}", severity="error", timeout=5)
+
+        self.render()
 
     def action_escape_pressed(self) -> None:
         if self.visual_mode and self.moving:
@@ -360,7 +392,7 @@ class FileTable(DataTable):
         output = ""
         pending_actions = ""
 
-        if command == "DELETE" or "MOVE":
+        if command in ("DELETE", "MOVE"):
             for item in self.item_queue:
                 pending_actions = pending_actions + "\n" + str(item)
                 output = output + f"{str(item)}\n"
@@ -372,7 +404,7 @@ class FileTable(DataTable):
                 dialog.update(f"Would you like to:\n\n{command}:\n{output}\nTO:\n{self.current_path}\n\n\[Y]es        \[N]o")
             dialog.focus()
 
-        if command == "CANCEL":
+        elif command == "CANCEL":
             dialog.update("You currently have items waiting to be moved. Would you like to cancel this action?\n\n\[Y]es        \[N]o")
             dialog.focus()
 
@@ -399,7 +431,7 @@ class FileTable(DataTable):
                     input.cursor_position = len(file_name)
                 input_box.command = "RENAME"
                 input.focus()
-            except Exception as RowDoesNotExist:
+            except Exception:
                 self.notify("Nothing to rename", severity="error", timeout=5)
                 input_box = self.app.query_one(InputBox)
                 input_box.action_exit()
