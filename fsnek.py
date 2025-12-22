@@ -15,35 +15,36 @@ from textual.coordinate import Coordinate
 class FileTable(DataTable):
     HOME_DIR = Path.home()
     BINDINGS = [
-        Binding("h",         "cursor_left",          "scroll left",                    show=False),
-        Binding("j",         "cursor_down",          "go down",                        show=True),
-        Binding("k",         "cursor_up",            "go up",                          show=True),
-        Binding("l",         "cursor_right",         "scroll right",                   show=False),
-        Binding("enter",     "select_cursor",        "open",                           show=True),
-        Binding("backspace", "go_back",              "back",                           show=True),
-        Binding("minus",     "go_back",              "back",                           show=False),
-        Binding("g",         "scroll_top",           "top",                            show=False),
-        Binding("G",         "scroll_bottom",        "bottom",                         show=False),
-        Binding("ctrl+u",    "half_page_up",         "half page up",                   show=False),
-        Binding("ctrl+d",    "half_page_down",       "half page down",                 show=False),
-        Binding("v/V",       "toggle_visual_mode",   "visual",                         show=True),
-        Binding("v",         "toggle_visual_mode",   "visual",                         show=False),
-        Binding("V",         "toggle_visual_mode",   "visual-line",                    show=False),
-        Binding("escape",    "escape_pressed",       "escape visual/visual-line mode", show=False),
-        Binding("a",         "rename(False, False)", "append",                         show=True),
-        Binding("A",         "rename(False, True)",  "append",                         show=False),
-        Binding("i",         "rename(True, False)",  "insert",                         show=True),
-        Binding("I",         "rename(True, False)",  "insert",                         show=False),
-        Binding("o/O",       "create_file",          "create file",                    show=True),
-        Binding("o",         "create_file",          "create file",                    show=False),
-        Binding("O",         "create_file",          "create file",                    show=False),
-        Binding("dd",        "delete",               "delete",                         show=True),
-        Binding("d",         "delete",               "delete",                         show=False),
-        Binding("xx",        "move",                 "move",                           show=True),
-        Binding("x",         "move",                 "move",                           show=False),
-        Binding("yy",        "yank",                 "yank",                           show=True),
-        Binding("y",         "yank",                 "yank",                           show=False),
-        Binding("p",         "put",                  "put (paste)",                    show=True),
+        Binding("h",         "cursor_left",          "scroll left",    show=False),
+        Binding("j",         "cursor_down",          "go down",        show=True),
+        Binding("k",         "cursor_up",            "go up",          show=True),
+        Binding("l",         "cursor_right",         "scroll right",   show=False),
+        Binding("enter",     "select_cursor",        "open",           show=True),
+        Binding("backspace", "go_back",              "back",           show=True),
+        Binding("minus",     "go_back",              "back",           show=False),
+        Binding("g",         "scroll_top",           "top",            show=False),
+        Binding("G",         "scroll_bottom",        "bottom",         show=False),
+        Binding("ctrl+u",    "half_page_up",         "half page up",   show=False),
+        Binding("ctrl+d",    "half_page_down",       "half page down", show=False),
+        Binding("v/V",       "toggle_visual_mode",   "visual",         show=True),
+        Binding("v",         "toggle_visual_mode",   "visual",         show=False),
+        Binding("V",         "toggle_visual_mode",   "visual-line",    show=False),
+        Binding("escape",    "escape_pressed",       "cancel",         show=True),
+        Binding("a/i",       "append/insert",        "append/insert",  show=True),
+        Binding("a",         "rename(False, False)", "append",         show=False),
+        Binding("A",         "rename(False, True)",  "append at end",  show=False),
+        Binding("i",         "rename(True, False)",  "insert",         show=False),
+        Binding("I",         "rename(True, False)",  "insert",         show=False),
+        Binding("o/O",       "create_file",          "create file",    show=True),
+        Binding("o",         "create_file",          "create file",    show=False),
+        Binding("O",         "create_file",          "create file",    show=False),
+        Binding("dd",        "delete",               "delete",         show=True),
+        Binding("d",         "delete",               "delete",         show=False),
+        Binding("xx",        "move",                 "move",           show=True),
+        Binding("x",         "move",                 "move",           show=False),
+        Binding("yy",        "yank",                 "yank",           show=True),
+        Binding("y",         "yank",                 "yank",           show=False),
+        Binding("p",         "put",                  "put",            show=True),
     ]
     MAX_COLUMN_WIDTH = 20
 
@@ -333,7 +334,6 @@ class FileTable(DataTable):
             self.render()
             self.move_cursor(row=self.current_row_idx)
 
-
     def action_put(self) -> None:
         if self.moving:
             self.show_dialog("MOVE")
@@ -348,6 +348,7 @@ class FileTable(DataTable):
             self.item_queue.clear()
             self.render()
             self.notify("Move canceled", severity="warning", timeout=5)
+        self.move_cursor(row=self.current_row_idx)
 
     def show_dialog(self, command: str) -> None:
         overlay = self.app.query_one(Overlay)
@@ -379,24 +380,29 @@ class FileTable(DataTable):
         if self.current_rows < 1:
             self.notify("Nothing to rename", severity="error", timeout=5)
         else:
-            overlay = self.app.query_one(Overlay)
-            overlay.styles.display = "block"
-            input_box = self.app.query_one(InputBox)
-            input_box.styles.display = "block"
-            input = input_box.query_one(Input)
-            file_name = self.get_row(self.current_row_key)[1]
-            input.value = file_name
-            if insert:
-                input.cursor_position = 0
-            elif "." in file_name:
-                if append_at_end:
+            try:
+                overlay = self.app.query_one(Overlay)
+                overlay.styles.display = "block"
+                input_box = self.app.query_one(InputBox)
+                input_box.styles.display = "block"
+                input = input_box.query_one(Input)
+                file_name = self.get_row(self.current_row_key)[1]
+                input.value = file_name
+                if insert:
+                    input.cursor_position = 0
+                elif "." in file_name:
+                    if append_at_end:
+                        input.cursor_position = len(file_name)
+                    else:
+                        input.cursor_position = len(file_name.split(".")[0])
+                else: 
                     input.cursor_position = len(file_name)
-                else:
-                    input.cursor_position = len(file_name.split(".")[0])
-            else: 
-                input.cursor_position = len(file_name)
-            input_box.command = "RENAME"
-            input.focus()
+                input_box.command = "RENAME"
+                input.focus()
+            except Exception as RowDoesNotExist:
+                self.notify("Nothing to rename", severity="error", timeout=5)
+                input_box = self.app.query_one(InputBox)
+                input_box.action_exit()
 
     def action_create_file(self) -> None:
         overlay = self.app.query_one(Overlay)
@@ -426,6 +432,7 @@ class DialogBox(Static, can_focus=True):
     BINDINGS = [
         ("y", "confirm", "confirm"),
         ("n", "abort", "abort"),
+        ("escape", "abort", "cancel"),
     ]
     DEFAULT_CSS = """
     DialogBox {
@@ -471,9 +478,6 @@ class DialogBox(Static, can_focus=True):
     def action_abort(self) -> None:
         overlay = self.app.query_one(Overlay)
         overlay.styles.display = "none"
-        file_table = self.app.query_one(FileTable)
-        file_table.item_queue.clear()
-        file_table.moving = False
 
         self.close_dialog()
 
@@ -490,7 +494,7 @@ class DialogBox(Static, can_focus=True):
                 shutil.move(item, file_table.current_path)
             except OSError:
                 formatted_item = item.split("/")[-1]
-                formatted_path = f"{file_table.current_path.name}/"
+                formatted_path = f"{file_table.current_path.name}"
                 self.notify(f"Cannot move {formatted_item} to {formatted_path}: File/directory already exists", severity="error", timeout=5)
         file_table.moving = False
         file_table.render()
