@@ -580,15 +580,15 @@ class Fsnek(App):
     }
     
     DataTable > .datatable--cursor {
-        background: #88C0D0;
+        background: $primary;
     }
     
     DataTable.visual-mode > .datatable--cursor {
-        background: #C4A7E7;
+        background: $secondary;
     }
 
     DataTable.yanking-it > .datatable--cursor {
-        background: #F6C177;
+        background: $accent;
     }
     """
     config_file = Path("config")
