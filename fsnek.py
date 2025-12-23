@@ -12,6 +12,7 @@ from textual.binding import Binding
 from textual.widgets import DataTable, Footer, Input, Static
 from textual.containers import Container
 from textual.coordinate import Coordinate
+from textual.widgets.data_table import RowKey
 
 
 class FileTable(DataTable):
@@ -55,7 +56,7 @@ class FileTable(DataTable):
 
     current_rows = 0
     current_row_idx = 0
-    current_row_key = 0
+    current_row_key: RowKey | None = None
     selected_row_keys = []
     item_queue = []
     yanking_queue = []
@@ -80,9 +81,9 @@ class FileTable(DataTable):
         self.add_column("Size", width=7) # 7 character max width e.g. 1023.4K
         self.add_column("Last Modified")
 
-        self.render()
+        self.refresh_table()
 
-    def render(self) -> None:
+    def refresh_table(self) -> None:
         self.current_rows = 0
 
         def assign_icon(path: Path) -> str:
@@ -93,6 +94,7 @@ class FileTable(DataTable):
             return ICONS.get(extension, ICONS["generic_file"])
 
         def human_readable_size(size: float, decimal_places: int = 1):
+            unit = 'B'
             for unit in ['B', 'K', 'M', 'G', 'T', 'P']:
                 if size < 1024.0 and unit == 'B':
                     return f"{size}{unit}"
@@ -163,10 +165,10 @@ class FileTable(DataTable):
         
         return super()._should_highlight(cursor, target_cell, type_of_cursor)
 
-    def watch_cursor_coordinate(self, old: Coordinate, new: Coordinate) -> None:
-        super().watch_cursor_coordinate(old, new)
+    def watch_cursor_coordinate(self, old_coordinate: Coordinate, new_coordinate: Coordinate) -> None:
+        super().watch_cursor_coordinate(old_coordinate, new_coordinate)
         if self.visual_mode:
-            self.visual_end_row = new.row
+            self.visual_end_row = new_coordinate.row
             self.refresh()
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
@@ -178,11 +180,11 @@ class FileTable(DataTable):
             try:
                 self.current_path = new_path
                 self.last_cursor_positions.append(event.cursor_row)
-                self.render()
+                self.refresh_table()
             except PermissionError:
                 self.current_path = previous_path
                 self.notify("Cannot access directory: Permission denied", severity="error", timeout=5)
-                self.render()
+                self.refresh_table()
                 self.move_cursor(row=self.last_cursor_positions[-1])
                 self.last_cursor_positions.pop()
             else:
@@ -200,7 +202,7 @@ class FileTable(DataTable):
         if self.current_path != self.HOME_DIR:
             self.current_path = new_path
             self.turn_visual_mode_off()
-            self.render()
+            self.refresh_table()
             if self.last_cursor_positions:
                 self.move_cursor(row=self.last_cursor_positions[-1])
                 self.last_cursor_positions.pop()
@@ -214,10 +216,8 @@ class FileTable(DataTable):
             self.visual_end_row = self.cursor_row
             self.selected_row_keys.append(self.current_row_key)
             self.add_class("visual-mode")
-            status = "on"
         else:
             self.turn_visual_mode_off()
-            status = "off"
         
         self.refresh()
 
@@ -234,6 +234,8 @@ class FileTable(DataTable):
         elif self.tap_count == 2:
             self.tap_count = 0
             return True
+        else:
+            return False
 
     def action_scroll_top(self) -> None:
         if self.is_double_tap():
@@ -296,7 +298,8 @@ class FileTable(DataTable):
                     self.add_class("yanking-it")
                     self.set_timer(timeout, lambda: self.remove_class("yanking-it"))
                     self.yanking_queue.clear()
-                    self.yanking_queue.append(Path(f"{self.current_path}/{self.get_row(self.current_row_key)[1]}"))
+                    if self.current_row_key is not None:
+                        self.yanking_queue.append(Path(f"{self.current_path}/{self.get_row(self.current_row_key)[1]}"))
 
             self.copy_to_clipboard()
         else:
@@ -312,6 +315,9 @@ class FileTable(DataTable):
                 pass
 
     def get_visual_mode_selection(self, yanking: bool = False) -> None:
+        if self.current_row_key is None:
+            return
+
         if self.current_row_key not in self.selected_row_keys:
             self.selected_row_keys.append(self.current_row_key)
         if self.visual_start_row < self.visual_end_row:
@@ -330,10 +336,7 @@ class FileTable(DataTable):
                 self.item_queue.append(Path(f"{self.current_path}/{self.get_row(row_key)[1]}"))
                 self.remove_row(row_key)
             else:
-                try:
-                    self.yanking_queue.append(Path(f"{self.current_path}/{self.get_row(row_key)[1]}"))
-                except Exception:
-                    pass
+                self.yanking_queue.append(Path(f"{self.current_path}/{self.get_row(row_key)[1]}"))
 
         self.turn_visual_mode_off()
         self.selected_row_keys.clear()
@@ -351,8 +354,9 @@ class FileTable(DataTable):
             if self.moving:
                 self.show_dialog("CANCEL")
             else:
-                self.item_queue.append(Path(f"{self.current_path}/{self.get_row(self.current_row_key)[1]}"))
-                self.remove_row(self.current_row_key)
+                if self.current_row_key is not None:
+                    self.item_queue.append(Path(f"{self.current_path}/{self.get_row(self.current_row_key)[1]}"))
+                    self.remove_row(self.current_row_key)
                 self.show_dialog("DELETE")
 
         if not self.moving:
@@ -362,12 +366,13 @@ class FileTable(DataTable):
         self.moving = True
         if self.visual_mode:
             self.get_visual_mode_selection()
-            self.render()
+            self.refresh_table()
 
         elif self.is_double_tap():
-            self.item_queue.append(Path(f"{self.current_path}/{self.get_row(self.current_row_key)[1]}"))
-            self.remove_row(self.current_row_key)
-            self.render()
+            if self.current_row_key is not None:
+                self.item_queue.append(Path(f"{self.current_path}/{self.get_row(self.current_row_key)[1]}"))
+                self.remove_row(self.current_row_key)
+            self.refresh_table()
             self.move_cursor(row=self.current_row_idx)
 
     def action_put(self) -> None:
@@ -395,7 +400,7 @@ class FileTable(DataTable):
                         shutil.copy2(item, destination)
                     except Exception as e:
                         self.notify(f"Error copying {item.name}: {str(e)}", severity="error", timeout=5)
-        self.render()
+        self.refresh_table()
 
     def action_escape_pressed(self) -> None:
         if self.visual_mode and self.moving:
@@ -405,7 +410,7 @@ class FileTable(DataTable):
         elif self.moving:
             self.moving = False
             self.item_queue.clear()
-            self.render()
+            self.refresh_table()
             self.notify("Move canceled", severity="warning", timeout=5)
         self.move_cursor(row=self.current_row_idx)
 
@@ -426,13 +431,13 @@ class FileTable(DataTable):
 
             dialog.actions = pending_actions[1:]
             if command == "DELETE":
-                dialog.update(f"Would you like to:\n\n{command}:\n{output}\n\[Y]es        \[N]o")
+                dialog.update(f"Would you like to:\n\n{command}:\n{output}\n\\[Y]es        \\[N]o")
             else:
-                dialog.update(f"Would you like to:\n\n{command}:\n{output}\nTO:\n{self.current_path}\n\n\[Y]es        \[N]o")
+                dialog.update(f"Would you like to:\n\n{command}:\n{output}\nTO:\n{self.current_path}\n\n\\[Y]es        \\[N]o")
             dialog.focus()
 
         elif command == "CANCEL":
-            dialog.update("You currently have items waiting to be moved. Would you like to cancel this action?\n\n\[Y]es        \[N]o")
+            dialog.update("You currently have items waiting to be moved. Would you like to cancel this action?\n\n\\[Y]es        \\[N]o")
             dialog.focus()
 
     def action_rename(self, insert: bool = False, append_at_end: bool = False) -> None:
@@ -445,6 +450,8 @@ class FileTable(DataTable):
                 input_box = self.app.query_one(InputBox)
                 input_box.styles.display = "block"
                 input = input_box.query_one(Input)
+                if self.current_row_key is None:
+                    return
                 file_name = self.get_row(self.current_row_key)[1]
                 input.value = file_name
                 if insert:
@@ -514,7 +521,7 @@ class DialogBox(Static, can_focus=True):
         self.actions = ""
         self.command = ""
         self.styles.display = "none"
-        file_table.render()
+        file_table.refresh_table()
         file_table.move_cursor(row=file_table.current_row_idx)
         file_table.turn_visual_mode_off()
         file_table.focus()
@@ -541,13 +548,16 @@ class DialogBox(Static, can_focus=True):
         self.close_dialog()
 
     def delete_files(self) -> None:
-        self.actions = self.actions.split("\n")
+        self.actions = str(self.actions).split("\n")
         for item in self.actions:
-            trash(item)
+            try:
+                trash(item)
+            except Exception as e:
+                self.notify(f"Unexpected error occured: {e}", severity="error", timeout=5)
 
     def move_files(self) -> None:
         file_table = self.app.query_one(FileTable)
-        self.actions = self.actions.split("\n")
+        self.actions = str(self.actions).split("\n")
         for item in self.actions:
             try:
                 shutil.move(item, file_table.current_path)
@@ -556,13 +566,13 @@ class DialogBox(Static, can_focus=True):
                 formatted_path = f"{file_table.current_path.name}"
                 self.notify(f"Cannot move {formatted_item} to {formatted_path}: File/directory already exists", severity="error", timeout=5)
         file_table.moving = False
-        file_table.render()
+        file_table.refresh_table()
 
     def cancel_move(self) -> None:
         file_table = self.app.query_one(FileTable)
         file_table.moving = False
         file_table.item_queue.clear()
-        file_table.render()
+        file_table.refresh_table()
 
 
 class InputBox(Static, can_focus=True):
@@ -587,6 +597,8 @@ class InputBox(Static, can_focus=True):
         file_table = self.app.query_one(FileTable)
 
         if self.command == "RENAME":
+            if file_table.current_row_key is None:
+                return
             old_path = Path(f"{file_table.current_path}/{file_table.get_row(file_table.current_row_key)[1]}")
             if event.value == "":
                 self.notify("Name cannot be empty", severity="error", timeout=5)
@@ -629,7 +641,7 @@ class InputBox(Static, can_focus=True):
         self.styles.display = "none"
         self.command = ""
         file_table = self.app.query_one(FileTable)
-        file_table.render()
+        file_table.refresh_table()
         file_table.move_cursor(row=file_table.current_row_idx)
         file_table.focus()
 
