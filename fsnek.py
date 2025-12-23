@@ -385,11 +385,16 @@ class FileTable(DataTable):
                     destination = self.current_path / new_name
                     j += 1
                 
-                try:
-                    shutil.copy2(item, destination)
-                except Exception as e:
-                    self.notify(f"Error copying {item.name}: {str(e)}", severity="error", timeout=5)
-        
+                if item.is_dir():
+                    try:
+                        shutil.copytree(item, destination)
+                    except Exception as e:
+                        self.notify(f"Error copying {item.name}: {str(e)}", severity="error", timeout=5)
+                else:
+                    try:
+                        shutil.copy2(item, destination)
+                    except Exception as e:
+                        self.notify(f"Error copying {item.name}: {str(e)}", severity="error", timeout=5)
         self.render()
 
     def action_escape_pressed(self) -> None:
@@ -586,8 +591,18 @@ class InputBox(Static, can_focus=True):
             if event.value == "":
                 self.notify("Name cannot be empty", severity="error", timeout=5)
             else:
-                new_path = old_path.with_name(event.value)
-                old_path.rename(new_path)
+                existing_files = []
+                for i in range(file_table.current_rows):
+                    existing_files.append(file_table.get_row_at(i)[1])
+
+                try:
+                    new_path = old_path.with_name(event.value)
+                    if event.value not in existing_files:
+                        old_path.rename(new_path)
+                    else:
+                        self.notify("Error: File/directory with same name already exists", severity="error", timeout=5)
+                except FileExistsError:
+                    self.notify("Error: File/directory with same name already exists", severity="error", timeout=5)
 
         elif self.command == "CREATE":
             if event.value == "":
