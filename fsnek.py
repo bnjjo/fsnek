@@ -359,15 +359,21 @@ class FileTable(DataTable):
             self.show_dialog("MOVE")
         else:
             for item in self.yanking_queue:
-                destination = Path(f"{self.current_path}/{item.name}")
-                if destination.exists():
-                    self.notify(f"Error: File with name {item.name} already exists in this directory", severity="error", timeout=5)
-                else:
-                    try:
-                        shutil.copy2(item, self.current_path)
-                    except Exception as e:
-                        self.notify(f"Error copying {item.name}: {str(e)}", severity="error", timeout=5)
-
+                stem = item.stem
+                suffix = item.suffix
+                j = 1
+                destination = self.current_path / item.name
+                
+                while destination.exists():
+                    new_name = f"{stem} ({j}){suffix}"
+                    destination = self.current_path / new_name
+                    j += 1
+                
+                try:
+                    shutil.copy2(item, destination)
+                except Exception as e:
+                    self.notify(f"Error copying {item.name}: {str(e)}", severity="error", timeout=5)
+        
         self.render()
 
     def action_escape_pressed(self) -> None:
