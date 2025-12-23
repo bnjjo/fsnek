@@ -1,4 +1,6 @@
 import shutil
+import pyperclipimg
+from PIL import Image
 from icons import ICONS
 from typing import Literal
 from pathlib import Path
@@ -295,8 +297,19 @@ class FileTable(DataTable):
                     self.set_timer(timeout, lambda: self.remove_class("yanking-it"))
                     self.yanking_queue.clear()
                     self.yanking_queue.append(Path(f"{self.current_path}/{self.get_row(self.current_row_key)[1]}"))
+
+            self.copy_to_clipboard()
         else:
             pass
+
+    def copy_to_clipboard(self):
+        for item in self.yanking_queue:
+            image_path = item
+            try:
+                image = Image.open(image_path)
+                pyperclipimg.copy(image)
+            except Exception:
+                pass
 
     def get_visual_mode_selection(self, yanking: bool = False) -> None:
         if self.current_row_key not in self.selected_row_keys:
@@ -317,7 +330,10 @@ class FileTable(DataTable):
                 self.item_queue.append(Path(f"{self.current_path}/{self.get_row(row_key)[1]}"))
                 self.remove_row(row_key)
             else:
-                self.yanking_queue.append(Path(f"{self.current_path}/{self.get_row(row_key)[1]}"))
+                try:
+                    self.yanking_queue.append(Path(f"{self.current_path}/{self.get_row(row_key)[1]}"))
+                except Exception:
+                    pass
 
         self.turn_visual_mode_off()
         self.selected_row_keys.clear()
