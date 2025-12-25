@@ -88,6 +88,7 @@ class FileTable(DataTable):
         self.add_column("Name", width=self.MAX_COLUMN_WIDTH)
         self.add_column("Size", width=7) # 7 character max width e.g. 1023.4K
         self.add_column("Last Modified")
+        self.add_column("Full name", width=0)
 
         self.refresh_table()
 
@@ -120,20 +121,19 @@ class FileTable(DataTable):
                 )
                 size = human_readable_size(stat_info.st_size)
 
-                # TODO: add elipses for when file names are too long
+                name_limit = self.MAX_COLUMN_WIDTH - 3
+                if len(item.name) > name_limit:
+                    display_name = f"{item.name[:name_limit]}..."
+                else:
+                    display_name = item.name
 
-                # name_limit = self.MAX_COLUMN_WIDTH - 3
-                # if len(item.name) > name_limit:
-                #     formatted_name = f"{item.name[:name_limit]}..."
-                # else:
-                #     formatted_name = item.name
-
-                if Path(f"{self.current_path}/{item.name}") not in self.item_queue:
+                if Path(f"{self.current_path}/{item.name}").resolve() not in [p.resolve() for p in self.item_queue]:
                     self.add_row(
                         assign_icon(item),
-                        item.name,
+                        display_name,
                         size,
                         lm_time,
+                        item.name,
                     )
 
                 self.current_rows += 1
@@ -181,7 +181,7 @@ class FileTable(DataTable):
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         self.selected_row_keys.clear()
-        selected_row = self.get_row_at(event.cursor_row)[1]
+        selected_row = self.get_row_at(event.cursor_row)[4]
         new_path = Path(f"{self.current_path}/{selected_row}")
         previous_path = self.current_path
         if new_path.is_dir():
@@ -307,7 +307,7 @@ class FileTable(DataTable):
                     self.set_timer(timeout, lambda: self.remove_class("yanking-it"))
                     self.yanking_queue.clear()
                     if self.current_row_key is not None:
-                        self.yanking_queue.append(Path(f"{self.current_path}/{self.get_row(self.current_row_key)[1]}"))
+                        self.yanking_queue.append(Path(f"{self.current_path}/{self.get_row(self.current_row_key)[4]}"))
 
             self.copy_to_clipboard()
         else:
@@ -341,10 +341,10 @@ class FileTable(DataTable):
 
         for row_key in self.selected_row_keys:
             if not yanking:
-                self.item_queue.append(Path(f"{self.current_path}/{self.get_row(row_key)[1]}"))
+                self.item_queue.append(Path(f"{self.current_path}/{self.get_row(row_key)[4]}"))
                 self.remove_row(row_key)
             else:
-                self.yanking_queue.append(Path(f"{self.current_path}/{self.get_row(row_key)[1]}"))
+                self.yanking_queue.append(Path(f"{self.current_path}/{self.get_row(row_key)[4]}"))
 
         self.turn_visual_mode_off()
         self.selected_row_keys.clear()
@@ -363,7 +363,7 @@ class FileTable(DataTable):
                 self.show_dialog("CANCEL")
             else:
                 if self.current_row_key is not None:
-                    self.item_queue.append(Path(f"{self.current_path}/{self.get_row(self.current_row_key)[1]}"))
+                    self.item_queue.append(Path(f"{self.current_path}/{self.get_row(self.current_row_key)[4]}"))
                     self.remove_row(self.current_row_key)
                 self.show_dialog("DELETE")
 
@@ -378,7 +378,7 @@ class FileTable(DataTable):
 
         elif self.is_double_tap():
             if self.current_row_key is not None:
-                self.item_queue.append(Path(f"{self.current_path}/{self.get_row(self.current_row_key)[1]}"))
+                self.item_queue.append(Path(f"{self.current_path}/{self.get_row(self.current_row_key)[4]}"))
                 self.remove_row(self.current_row_key)
             self.refresh_table()
             self.move_cursor(row=self.current_row_idx)
@@ -460,7 +460,7 @@ class FileTable(DataTable):
                 input = input_box.query_one(Input)
                 if self.current_row_key is None:
                     return
-                file_name = self.get_row(self.current_row_key)[1]
+                file_name = self.get_row(self.current_row_key)[4]
                 input.value = file_name
                 if insert:
                     input.cursor_position = 0
@@ -607,13 +607,13 @@ class InputBox(Static, can_focus=True):
         if self.command == "RENAME":
             if file_table.current_row_key is None:
                 return
-            old_path = Path(f"{file_table.current_path}/{file_table.get_row(file_table.current_row_key)[1]}")
+            old_path = Path(f"{file_table.current_path}/{file_table.get_row(file_table.current_row_key)[4]}")
             if event.value == "":
                 self.notify("Name cannot be empty", severity="error", timeout=5)
             else:
                 existing_files = []
                 for i in range(file_table.current_rows):
-                    existing_files.append(file_table.get_row_at(i)[1])
+                    existing_files.append(file_table.get_row_at(i)[4])
 
                 try:
                     new_path = old_path.with_name(event.value)
@@ -684,7 +684,8 @@ class Fsnek(App):
         background: $accent;
     }
     """
-    config_file = Path("config")
+    config_file = Path.home() / ".config" / "fsnek" / "config"
+    config_file.parent.mkdir(parents=True, exist_ok=True)
     selected_theme = "textual-dark"
 
     def compose(self) -> ComposeResult:
