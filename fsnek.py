@@ -1,3 +1,4 @@
+import sys
 import shutil
 import pyperclipimg
 from PIL import Image
@@ -51,7 +52,14 @@ class FileTable(DataTable):
     ]
     MAX_COLUMN_WIDTH = 20
 
-    current_path = Path(HOME_DIR)
+    if len(sys.argv) > 1:
+        if Path(sys.argv[1]).is_dir():
+            current_path = Path(sys.argv[1])
+        else:
+            current_path = Path(HOME_DIR)
+    else:
+        current_path = Path(HOME_DIR)
+
     last_cursor_positions = []
 
     current_rows = 0
