@@ -1,3 +1,7 @@
+<p align="center">
+  <img width="2560" height="1407" alt="image" src="https://github.com/user-attachments/assets/162dafc3-0279-417f-8a9a-1ddfc4c08cfd" />
+</p>
+
 # fsnek
 
 A Vim-inspired TUI file manager built with Python and Textual.
