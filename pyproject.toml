@@ -1,0 +1,20 @@
+[project]
+name = "fsnek"
+version = "0.1.0"
+description = "A Vim-inspired TUI file manager"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+dependencies = [
+    "Pillow==11.3.0",
+    "pyperclipimg==0.2.0",
+    "Send2Trash==1.8.3",
+    "textual==6.11.0",
+]
+
+[project.scripts]
+fsnek = "fsnek:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

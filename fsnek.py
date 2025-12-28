@@ -707,6 +707,10 @@ class Fsnek(App):
             self.config_file.write_text(self.selected_theme)
 
 
-if __name__ == "__main__":
+def main():
     app = Fsnek()
     app.run()
+
+if __name__ == "__main__":
+    main()
+
